@@ -8,15 +8,20 @@ import java.io.OutputStreamWriter;
 import java.net.Socket;
 import java.util.ArrayDeque;
 import java.util.Collection;
+import java.util.Set;
 import java.util.Iterator;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Server;
 import org.bukkit.World;
+import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.block.Sign;
+import org.bukkit.inventory.ItemStack;
+// import org.bukkit.block.data.BlockData;
 import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
@@ -111,6 +116,48 @@ public class RemoteSession {
 		//plugin.getLogger().info(event.toString());
 		chatPostedQueue.add(event);
 	}
+
+	public void tryRunCommand(String chatMessage) {
+		plugin.getLogger().info("Parsing chat command: " + chatMessage);
+
+		chatMessage = chatMessage.replaceAll("\\s+","");
+		int leftBracket = chatMessage.indexOf('(');
+		if (leftBracket == -1) {
+			return;
+		}
+		String functionName = chatMessage.substring(0, leftBracket);
+		String[] args = chatMessage.substring(leftBracket+1, chatMessage.length() - 1).split(",");
+
+		plugin.getLogger().info("Chat command: " + chatMessage + "(" + args + ")");
+
+		String translatedFunctionName;
+
+		switch(functionName) {
+			case("setBlock"): {
+				translatedFunctionName = "world.setBlock";
+				break;
+			}
+			case("removeBlock"): {
+				translatedFunctionName = "world.setBlock";
+				args[3] = "" + Material.AIR.getId();
+				args[4] = "";
+				break;
+			}
+			case("setPos"): {
+				translatedFunctionName = "player.setPos";
+				break;
+			}
+			default: {
+				plugin.getLogger().warning("Unsupported command: " + functionName);
+				return;
+			}
+		}
+
+		String translatedFunctionCall = translatedFunctionName+"("+String.join(",", args)+")";
+		plugin.getLogger().info("Translated function call: " + translatedFunctionCall);
+
+		inQueue.add(translatedFunctionCall);
+	}
 	
 	public void queueProjectileHitEvent(ProjectileHitEvent event) {
 		//plugin.getLogger().info(event.toString());
@@ -171,6 +218,9 @@ public class RemoteSession {
 			
 			// get the world
 			World world = origin.getWorld();
+
+			// get current player
+			Player currentPlayer = getCurrentPlayer();
 			
 			// world.getBlock
 			if (c.equals("world.getBlock")) {
@@ -320,26 +370,22 @@ public class RemoteSession {
 			
 			// player.getTile
 			}else if (c.equals("player.getTile")) {
-				Player currentPlayer = getCurrentPlayer();
 				send(blockLocationToRelative(currentPlayer.getLocation()));
 				
 			// player.setTile
 			} else if (c.equals("player.setTile")) {
 				String x = args[0], y = args[1], z = args[2];
-				Player currentPlayer = getCurrentPlayer();
 				//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
 				Location loc = currentPlayer.getLocation();
 				currentPlayer.teleport(parseRelativeBlockLocation(x, y, z, loc.getPitch(), loc.getYaw()));
 				
 			// player.getAbsPos
 			} else if (c.equals("player.getAbsPos")) {
-				Player currentPlayer = getCurrentPlayer();
 				send(currentPlayer.getLocation());
 				
 			// player.setAbsPos
 			} else if (c.equals("player.setAbsPos")) {
 				String x = args[0], y = args[1], z = args[2];
-				Player currentPlayer = getCurrentPlayer();
 				//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
 				Location loc = currentPlayer.getLocation();
 				loc.setX(Double.parseDouble(x));
@@ -349,13 +395,11 @@ public class RemoteSession {
 
 			// player.getPos
 			} else if (c.equals("player.getPos")) {
-				Player currentPlayer = getCurrentPlayer();
 				send(locationToRelative(currentPlayer.getLocation()));
 
 			// player.setPos
 			} else if (c.equals("player.setPos")) {
 				String x = args[0], y = args[1], z = args[2];
-				Player currentPlayer = getCurrentPlayer();
 				//get players current location, so when they are moved we will use the same pitch and yaw (rotation)
 				Location loc = currentPlayer.getLocation();
 				currentPlayer.teleport(parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
@@ -365,27 +409,28 @@ public class RemoteSession {
 				Double x = Double.parseDouble(args[0]);
 				Double y = Double.parseDouble(args[1]); 
 				Double z = Double.parseDouble(args[2]);
-				Player currentPlayer = getCurrentPlayer();
 				Location loc = currentPlayer.getLocation();
 				loc.setDirection(new Vector(x, y, z));
 				currentPlayer.teleport(loc);
 
 			// player.getDirection
 			} else if (c.equals("player.getDirection")) {
-			Player currentPlayer = getCurrentPlayer();
-			send(currentPlayer.getLocation().getDirection().toString());
+				send(currentPlayer.getLocation().getDirection().toString());
 
 			// player.setRotation
 			} else if (c.equals("player.setRotation")) {
 				Float yaw = Float.parseFloat(args[0]);
-				Player currentPlayer = getCurrentPlayer();
 				Location loc = currentPlayer.getLocation();
 				loc.setYaw(yaw);
 				currentPlayer.teleport(loc);
 
+			// player.getTargetedBlock
+			} else if (c.equals("player.getTargetedBlock")) {
+				Location location = currentPlayer.getTargetBlock((Set<Material>) null, 20).getLocation();
+				send(locationToRelative(location));
+
 			// player.getRotation
 			} else if (c.equals("player.getRotation")) {
-				Player currentPlayer = getCurrentPlayer();
 				float yaw = currentPlayer.getLocation().getYaw();
 				// turn bukkit's 0 - -360 to positive numbers 
 				if (yaw < 0) yaw = yaw * -1;
@@ -394,19 +439,16 @@ public class RemoteSession {
 			// player.setPitch
 			} else if (c.equals("player.setPitch")) {
 				Float pitch = Float.parseFloat(args[0]);
-				Player currentPlayer = getCurrentPlayer();
 				Location loc = currentPlayer.getLocation();
 				loc.setPitch(pitch);
 				currentPlayer.teleport(loc);
 				
 			// player.getPitch
 			} else if (c.equals("player.getPitch")) {
-				Player currentPlayer = getCurrentPlayer();
 				send(currentPlayer.getLocation().getPitch());
 
 			// player.getEntities
 			} else if (c.equals("player.getEntities")) {
-				Player currentPlayer = getCurrentPlayer();
 				int distance = Integer.parseInt(args[0]);
 				int entityTypeId = Integer.parseInt(args[1]);
 
@@ -414,7 +456,6 @@ public class RemoteSession {
 
 			// player.removeEntities
 			} else if (c.equals("player.removeEntities")) {
-				Player currentPlayer = getCurrentPlayer();
 				int distance = Integer.parseInt(args[0]);
 				int entityType = Integer.parseInt(args[1]);
 
@@ -422,22 +463,18 @@ public class RemoteSession {
 
 			// player.events.block.hits
 			} else if (c.equals("player.events.block.hits")) {
-				Player currentPlayer = getCurrentPlayer();
 				send(getBlockHits(currentPlayer.getEntityId()));
 				
 			// player.events.chat.posts
 			} else if (c.equals("player.events.chat.posts")) {
-				Player currentPlayer = getCurrentPlayer();
 				send(getChatPosts(currentPlayer.getEntityId()));
 				
 			// player.events.projectile.hits
 			} else if(c.equals("player.events.projectile.hits")) {
-				Player currentPlayer = getCurrentPlayer();
 				send(getProjectileHits(currentPlayer.getEntityId()));
 			
 			// player.events.clear
 			} else if (c.equals("player.events.clear")) {
-				Player currentPlayer = getCurrentPlayer();
 				clearEntityEvents(currentPlayer.getEntityId());
 				
 			// world.getHeight
@@ -583,25 +620,25 @@ public class RemoteSession {
 				send(removeEntities(world, entityId, distance, entityType));
 				
 			// world.setSign
-			} else if (c.equals("world.setSign")) {
-				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
-				Block thisBlock = world.getBlockAt(loc);
-				//blockType should be 68 for wall sign or 63 for standing sign
-				int blockType = Integer.parseInt(args[3]);	
-				//facing direction for wall sign : 2=north, 3=south, 4=west, 5=east
-				//rotation 0 - to 15 for standing sign : 0=south, 4=west, 8=north, 12=east
-				byte blockData = Byte.parseByte(args[4]); 
-				if ((thisBlock.getTypeId() != blockType) || (thisBlock.getData() != blockData)) {
-					thisBlock.setTypeIdAndData(blockType, blockData, true);
+		} else if (c.equals("world.setSign")) {
+			Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
+			Block thisBlock = world.getBlockAt(loc);
+			//blockType should be 68 for wall sign or 63 for standing sign
+			int blockType = Integer.parseInt(args[3]);	
+			//facing direction for wall sign : 2=north, 3=south, 4=west, 5=east
+			//rotation 0 - to 15 for standing sign : 0=south, 4=west, 8=north, 12=east
+			byte blockData = Byte.parseByte(args[4]); 
+			if ((thisBlock.getTypeId() != blockType) || (thisBlock.getData() != blockData)) {
+				thisBlock.setTypeIdAndData(blockType, blockData, true);
+			}
+			//plugin.getLogger().info("Creating sign at " + loc);
+			if ( thisBlock.getState() instanceof Sign ) {
+				Sign sign = (Sign) thisBlock.getState();
+				for ( int i = 5; i-5 < 4 && i < args.length; i++) {
+					sign.setLine(i-5, args[i]);
 				}
-				//plugin.getLogger().info("Creating sign at " + loc);
-				if ( thisBlock.getState() instanceof Sign ) {
-					Sign sign = (Sign) thisBlock.getState();
-					for ( int i = 5; i-5 < 4 && i < args.length; i++) {
-						sign.setLine(i-5, args[i]);
-					}
-					sign.update();
-				}
+				sign.update();
+			}
 			
 			// world.spawnEntity
 			} else if (c.equals("world.spawnEntity")) {
@@ -621,6 +658,20 @@ public class RemoteSession {
 					}
 				}
 				send(bdr.toString());
+
+			} else if (c.equals("inventory.addItem")) {
+				Inventory inventory = currentPlayer.getInventory();
+				Integer typeId = Integer.parseInt(args[0]);
+				Integer amount = Integer.parseInt(args[1]);
+				ItemStack item = new ItemStack(Material.values()[typeId], amount);
+				inventory.addItem(item);
+
+			} else if (c.equals("inventory.removeItem")) {
+				Inventory inventory = currentPlayer.getInventory();
+				Integer typeId = Integer.parseInt(args[0]);
+				Integer amount = Integer.parseInt(args[1]);
+				ItemStack item = new ItemStack(Material.values()[typeId], amount);
+				inventory.removeItem(item);
 
 			// not a command which is supported
 			} else {

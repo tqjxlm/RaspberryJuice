@@ -110,25 +110,28 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	@EventHandler(ignoreCancelled=true)
 	public void onPlayerInteract(PlayerInteractEvent event) {
+		event.setCancelled(true);
+		return;
+
 		// only react to events which are of the correct type
-		switch(hitClickType) {
-			case BOTH:
-				if ((event.getAction() != Action.RIGHT_CLICK_BLOCK) && (event.getAction() != Action.LEFT_CLICK_BLOCK)) return;
-				break;
-			case LEFT:
-				if (event.getAction() != Action.LEFT_CLICK_BLOCK) return;
-				break;
-			case RIGHT:
-				if (event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
-				break;
-		}
-		ItemStack currentTool = event.getItem();
-		if (currentTool == null || !blockBreakDetectionTools.contains(currentTool.getType())) {
-			return;
-		}
-		for (RemoteSession session: sessions) {
-			session.queuePlayerInteractEvent(event);
-		}
+		// switch(hitClickType) {
+		// 	case BOTH:
+		// 		if ((event.getAction() != Action.RIGHT_CLICK_BLOCK) && (event.getAction() != Action.LEFT_CLICK_BLOCK)) return;
+		// 		break;
+		// 	case LEFT:
+		// 		if (event.getAction() != Action.LEFT_CLICK_BLOCK) return;
+		// 		break;
+		// 	case RIGHT:
+		// 		if (event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+		// 		break;
+		// }
+		// ItemStack currentTool = event.getItem();
+		// if (currentTool == null || !blockBreakDetectionTools.contains(currentTool.getType())) {
+		// 	return;
+		// }
+		// for (RemoteSession session: sessions) {
+		// 	session.queuePlayerInteractEvent(event);
+		// }
 	}
 
 	@EventHandler(ignoreCancelled=true)
@@ -137,6 +140,10 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		//getLogger().info("Chat event fired");
 		for (RemoteSession session: sessions) {
 			session.queueChatPostedEvent(event);
+
+			if(session.getCurrentPlayer().getEntityId() == event.getPlayer().getEntityId()) {
+				session.tryRunCommand(event.getMessage());
+			}
 		}
 	}
 	
