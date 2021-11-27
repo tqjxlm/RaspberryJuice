@@ -9,7 +9,6 @@ import java.net.Socket;
 import java.util.ArrayDeque;
 import java.util.Collection;
 import java.util.Set;
-import java.util.Iterator;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -17,26 +16,15 @@ import org.bukkit.Server;
 import org.bukkit.World;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.block.Sign;
 import org.bukkit.inventory.ItemStack;
-// import org.bukkit.block.data.BlockData;
-import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
-import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
-import org.bukkit.event.entity.ProjectileHitEvent;
-import org.bukkit.event.player.AsyncPlayerChatEvent;
-import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.util.Vector;
 
-public class RemoteSession {
-
-	private final LocationType locationType;
-
-	private Location origin;
+public class RemoteSession extends CommandExecutor {
 
 	private Socket socket;
 
@@ -48,32 +36,21 @@ public class RemoteSession {
 	
 	private Thread outThread;
 
-	private ArrayDeque<String> inQueue = new ArrayDeque<String>();
-
-	private ArrayDeque<String> outQueue = new ArrayDeque<String>();
-
 	public boolean running = true;
 
 	public boolean pendingRemoval = false;
-
-	public RaspberryJuicePlugin plugin;
-
-	protected ArrayDeque<PlayerInteractEvent> interactEventQueue = new ArrayDeque<PlayerInteractEvent>();
-	
-	protected ArrayDeque<AsyncPlayerChatEvent> chatPostedQueue = new ArrayDeque<AsyncPlayerChatEvent>();
-	
-	protected ArrayDeque<ProjectileHitEvent> projectileHitQueue = new ArrayDeque<ProjectileHitEvent>();
-
-	private int maxCommandsPerTick = 9000;
 
 	private boolean closed = false;
 
 	private Player attachedPlayer = null;
 
+	protected ArrayDeque<String> inQueue = new ArrayDeque<String>();
+
+	protected ArrayDeque<String> outQueue = new ArrayDeque<String>();
+
 	public RemoteSession(RaspberryJuicePlugin plugin, Socket socket) throws IOException {
+		super(plugin);
 		this.socket = socket;
-		this.plugin = plugin;
-		this.locationType = plugin.getLocationType();
 		init();
 	}
 
@@ -94,120 +71,8 @@ public class RemoteSession {
 		outThread.start();
 	}
 
-
-	public Location getOrigin() {
-		return origin;
-	}
-
-	public void setOrigin(Location origin) {
-		this.origin = origin;
-	}
-
 	public Socket getSocket() {
 		return socket;
-	}
-
-	public void queuePlayerInteractEvent(PlayerInteractEvent event) {
-		//plugin.getLogger().info(event.toString());
-		interactEventQueue.add(event);
-	}
-
-	public void queueChatPostedEvent(AsyncPlayerChatEvent event) {
-		//plugin.getLogger().info(event.toString());
-		chatPostedQueue.add(event);
-	}
-
-	public void tryRunCommand(String chatMessage) {
-		plugin.getLogger().info("Parsing chat command: " + chatMessage);
-
-		chatMessage = chatMessage.replaceAll("\\s+","");
-		int leftBracket = chatMessage.indexOf('(');
-		if (leftBracket == -1) {
-			return;
-		}
-		String functionName = chatMessage.substring(0, leftBracket);
-		String[] args = chatMessage.substring(leftBracket+1, chatMessage.length() - 1).split(",");
-
-		plugin.getLogger().info("Chat command: " + chatMessage + "(" + args + ")");
-
-		String translatedFunctionName;
-
-		switch(functionName) {
-			case("setBlock"): {
-				translatedFunctionName = "world.setBlock";
-				break;
-			}
-			case("removeBlock"): {
-				translatedFunctionName = "world.setBlock";
-				args[3] = "" + Material.AIR.getId();
-				args[4] = "";
-				break;
-			}
-			case("setPos"): {
-				translatedFunctionName = "player.setPos";
-				break;
-			}
-			default: {
-				plugin.getLogger().warning("Unsupported command: " + functionName);
-				return;
-			}
-		}
-
-		String translatedFunctionCall = translatedFunctionName+"("+String.join(",", args)+")";
-		plugin.getLogger().info("Translated function call: " + translatedFunctionCall);
-
-		inQueue.add(translatedFunctionCall);
-	}
-	
-	public void queueProjectileHitEvent(ProjectileHitEvent event) {
-		//plugin.getLogger().info(event.toString());
-
-		if (event.getEntityType() == EntityType.ARROW) {
-			Arrow arrow = (Arrow) event.getEntity();
-			if (arrow.getShooter() instanceof Player) {
-				projectileHitQueue.add(event);
-			}
-		}
-	}
-
-	/** called from the server main thread */
-	public void tick() {
-		if (origin == null) {
-			switch (locationType) {
-				case ABSOLUTE:
-					this.origin = new Location(plugin.getServer().getWorlds().get(0), 0, 0, 0);
-					break;
-				case RELATIVE:
-					this.origin = plugin.getServer().getWorlds().get(0).getSpawnLocation();
-					break;
-				default:
-					throw new IllegalArgumentException("Unknown location type " + locationType);
-			}
-		}
-		int processedCount = 0;
-		String message;
-		while ((message = inQueue.poll()) != null) {
-			handleLine(message);
-			processedCount++;
-			if (processedCount >= maxCommandsPerTick) {
-				plugin.getLogger().warning("Over " + maxCommandsPerTick +
-					" commands were queued - deferring " + inQueue.size() + " to next tick");
-				break;
-			}
-		}
-
-		if (!running && inQueue.size() <= 0) {
-			pendingRemoval = true;
-		}
-	}
-
-	protected void handleLine(String line) {
-		//System.out.println(line);
-		String methodName = line.substring(0, line.indexOf("("));
-		//split string into args, handles , inside " i.e. ","
-		String[] args = line.substring(line.indexOf("(") + 1, line.length() - 1).split(",");
-		//System.out.println(methodName + ":" + Arrays.toString(args));
-		handleCommand(methodName, args);
 	}
 
 	protected void handleCommand(String c, String[] args) {
@@ -629,7 +494,7 @@ public class RemoteSession {
 			//rotation 0 - to 15 for standing sign : 0=south, 4=west, 8=north, 12=east
 			byte blockData = Byte.parseByte(args[4]); 
 			if ((thisBlock.getTypeId() != blockType) || (thisBlock.getData() != blockData)) {
-				thisBlock.setTypeIdAndData(blockType, blockData, true);
+				thisBlock.setTypeIdAndData(blockType, blockData, false);
 			}
 			//plugin.getLogger().info("Creating sign at " + loc);
 			if ( thisBlock.getState() instanceof Sign ) {
@@ -687,66 +552,39 @@ public class RemoteSession {
 		}
 	}
 
-	// create a cuboid of lots of blocks 
-	private void setCuboid(Location pos1, Location pos2, int blockType, byte data) {
-		int minX, maxX, minY, maxY, minZ, maxZ;
-		World world = pos1.getWorld();
-		minX = pos1.getBlockX() < pos2.getBlockX() ? pos1.getBlockX() : pos2.getBlockX();
-		maxX = pos1.getBlockX() >= pos2.getBlockX() ? pos1.getBlockX() : pos2.getBlockX();
-		minY = pos1.getBlockY() < pos2.getBlockY() ? pos1.getBlockY() : pos2.getBlockY();
-		maxY = pos1.getBlockY() >= pos2.getBlockY() ? pos1.getBlockY() : pos2.getBlockY();
-		minZ = pos1.getBlockZ() < pos2.getBlockZ() ? pos1.getBlockZ() : pos2.getBlockZ();
-		maxZ = pos1.getBlockZ() >= pos2.getBlockZ() ? pos1.getBlockZ() : pos2.getBlockZ();
-
-		for (int x = minX; x <= maxX; ++x) {
-			for (int z = minZ; z <= maxZ; ++z) {
-				for (int y = minY; y <= maxY; ++y) {
-					updateBlock(world, x, y, z, blockType, data);
-				}
+	public void tick() {
+		if (origin == null) {
+			switch (locationType) {
+				case ABSOLUTE:
+					this.origin = new Location(plugin.getServer().getWorlds().get(0), 0, 0, 0);
+					break;
+				case RELATIVE:
+					this.origin = plugin.getServer().getWorlds().get(0).getSpawnLocation();
+					break;
+				default:
+					throw new IllegalArgumentException("Unknown location type " + locationType);
+			}
+		}
+		int processedCount = 0;
+		String message;
+		while ((message = inQueue.poll()) != null) {
+			handleLine(message);
+			processedCount++;
+			if (processedCount >= maxCommandsPerTick) {
+				plugin.getLogger().warning("Over " + maxCommandsPerTick +
+					" commands were queued - deferring " + inQueue.size() + " to next tick");
+				break;
 			}
 		}
 	}
 
-	// get a cuboid of lots of blocks
-	private String getBlocks(Location pos1, Location pos2) {
-		StringBuilder blockData = new StringBuilder();
-
-		int minX, maxX, minY, maxY, minZ, maxZ;
-		World world = pos1.getWorld();
-		minX = pos1.getBlockX() < pos2.getBlockX() ? pos1.getBlockX() : pos2.getBlockX();
-		maxX = pos1.getBlockX() >= pos2.getBlockX() ? pos1.getBlockX() : pos2.getBlockX();
-		minY = pos1.getBlockY() < pos2.getBlockY() ? pos1.getBlockY() : pos2.getBlockY();
-		maxY = pos1.getBlockY() >= pos2.getBlockY() ? pos1.getBlockY() : pos2.getBlockY();
-		minZ = pos1.getBlockZ() < pos2.getBlockZ() ? pos1.getBlockZ() : pos2.getBlockZ();
-		maxZ = pos1.getBlockZ() >= pos2.getBlockZ() ? pos1.getBlockZ() : pos2.getBlockZ();
-
-		for (int y = minY; y <= maxY; ++y) {
-			 for (int x = minX; x <= maxX; ++x) {
-				 for (int z = minZ; z <= maxZ; ++z) {
-					blockData.append(new Integer(world.getBlockTypeIdAt(x, y, z)).toString() + ",");
-				}
-			}
-		}
-
-		return blockData.substring(0, blockData.length() > 0 ? blockData.length() - 1 : 0);	// We don't want last comma
-	}
-
-	// updates a block
-	private void updateBlock(World world, Location loc, int blockType, byte blockData) {
-		Block thisBlock = world.getBlockAt(loc);
-		updateBlock(thisBlock, blockType, blockData);
-	}
-	
-	private void updateBlock(World world, int x, int y, int z, int blockType, byte blockData) {
-		Block thisBlock = world.getBlockAt(x,y,z);
-		updateBlock(thisBlock, blockType, blockData);
-	}
-	
-	private void updateBlock(Block thisBlock, int blockType, byte blockData) {
-		// check to see if the block is different - otherwise leave it 
-		if ((thisBlock.getTypeId() != blockType) || (thisBlock.getData() != blockData)) {
-			thisBlock.setTypeIdAndData(blockType, blockData, true);
-		}
+	protected void handleLine(String line) {
+		//System.out.println(line);
+		String methodName = line.substring(0, line.indexOf("("));
+		//split string into args, handles , inside " i.e. ","
+		String[] args = line.substring(line.indexOf("(") + 1, line.length() - 1).split(",");
+		//System.out.println(methodName + ":" + Arrays.toString(args));
+		handleCommand(methodName, args);
 	}
 	
 	// gets the current player
@@ -773,233 +611,6 @@ public class RemoteSession {
 			}
 		}
 		return player;
-	}
-
-
-	public Location parseRelativeBlockLocation(String xstr, String ystr, String zstr) {
-		int x = (int) Double.parseDouble(xstr);
-		int y = (int) Double.parseDouble(ystr);
-		int z = (int) Double.parseDouble(zstr);
-		return parseLocation(origin.getWorld(), x, y, z, origin.getBlockX(), origin.getBlockY(), origin.getBlockZ());
-	}
-
-	public Location parseRelativeLocation(String xstr, String ystr, String zstr) {
-		double x = Double.parseDouble(xstr);
-		double y = Double.parseDouble(ystr);
-		double z = Double.parseDouble(zstr);
-		return parseLocation(origin.getWorld(), x, y, z, origin.getX(), origin.getY(), origin.getZ());
-	}
-
-	public Location parseRelativeBlockLocation(String xstr, String ystr, String zstr, float pitch, float yaw) {
-		Location loc = parseRelativeBlockLocation(xstr, ystr, zstr);
-		loc.setPitch(pitch);
-		loc.setYaw(yaw);
-		return loc;
-	}
-
-	public Location parseRelativeLocation(String xstr, String ystr, String zstr, float pitch, float yaw) {
-		Location loc = parseRelativeLocation(xstr, ystr, zstr);
-		loc.setPitch(pitch);
-		loc.setYaw(yaw);
-		return loc;
-	}
-	
-	public String blockLocationToRelative(Location loc) {
-		return parseLocation(loc.getBlockX(), loc.getBlockY(), loc.getBlockZ(), origin.getBlockX(), origin.getBlockY(), origin.getBlockZ());
-	}
-
-	public String locationToRelative(Location loc) {
-		return parseLocation(loc.getX(), loc.getY(), loc.getZ(), origin.getX(), origin.getY(), origin.getZ());
-	}
-
-	private String parseLocation(double x, double y, double z, double originX, double originY, double originZ) {
-		return (x - originX) + "," + (y - originY) + "," + (z - originZ);
-	}
-
-	private Location parseLocation(World world, double x, double y, double z, double originX, double originY, double originZ) {
-		return new Location(world, originX + x, originY + y, originZ + z);
-	}
-
-	private String parseLocation(int x, int y, int z, int originX, int originY, int originZ) {
-		return (x - originX) + "," + (y - originY) + "," + (z - originZ);
-	}
-
-	private Location parseLocation(World world, int x, int y, int z, int originX, int originY, int originZ) {
-		return new Location(world, originX + x, originY + y, originZ + z);
-	}
-
-	private double getDistance(Entity ent1, Entity ent2) {
-		if (ent1 == null || ent2 == null)
-			return -1;
-		double dx = ent2.getLocation().getX() - ent1.getLocation().getX();
-		double dy = ent2.getLocation().getY() - ent1.getLocation().getY();
-		double dz = ent2.getLocation().getZ() - ent1.getLocation().getZ();
-		return Math.sqrt(dx*dx + dy*dy + dz*dz);
-	}
-
-	private String getEntities(World world, int entityType) {
-		StringBuilder bdr = new StringBuilder();				
-		for (Entity e : world.getEntities()) {
-			if (((entityType == -1 && e.getType().getTypeId() >= 0) || e.getType().getTypeId() == entityType) && 
-				e.getType().isSpawnable()) {
-				bdr.append(getEntityMsg(e));
-			}
-		}
-		return bdr.toString();
-	}
-	
-	private String getEntities(World world, int entityId, int distance, int entityType) {
-		Entity playerEntity = plugin.getEntity(entityId);
-		StringBuilder bdr = new StringBuilder();
-		for (Entity e : world.getEntities()) {
-			if (((entityType == -1 && e.getType().getTypeId() >= 0) || e.getType().getTypeId() == entityType) && 
-				e.getType().isSpawnable() && 
-				getDistance(playerEntity, e) <= distance) {
-				bdr.append(getEntityMsg(e));
-			}
-		}
-		return bdr.toString();
-	}
-
-	private String getEntityMsg(Entity entity) {
-		StringBuilder bdr = new StringBuilder();
-		bdr.append(entity.getEntityId());
-		bdr.append(",");
-		bdr.append(entity.getType().getTypeId());
-		bdr.append(",");
-		bdr.append(entity.getType().toString());
-		bdr.append(",");
-		bdr.append(entity.getLocation().getX());
-		bdr.append(",");
-		bdr.append(entity.getLocation().getY());
-		bdr.append(",");
-		bdr.append(entity.getLocation().getZ());
-		bdr.append("|");
-		return bdr.toString();
-	}
-
-	private int removeEntities(World world, int entityId, int distance, int entityType) {
-		int removedEntitiesCount = 0;
-		Entity playerEntityId = plugin.getEntity(entityId);
-		for (Entity e : world.getEntities()) {
-			if ((entityType == -1 || e.getType().getTypeId() == entityType) && getDistance(playerEntityId, e) <= distance)
-			{
-				e.remove();
-				removedEntitiesCount++;
-			}
-		}
-		return removedEntitiesCount;
-	}
-
-	private String getBlockHits() {
-		return getBlockHits(-1);
-	}
-
-	private String getBlockHits(int entityId) {
-		StringBuilder b = new StringBuilder();
-		for (Iterator<PlayerInteractEvent> iter = interactEventQueue.iterator(); iter.hasNext(); ) {
-			PlayerInteractEvent event = iter.next();
-			if (entityId == -1 || event.getPlayer().getEntityId() == entityId) {
-				Block block = event.getClickedBlock();
-				Location loc = block.getLocation();
-				b.append(blockLocationToRelative(loc));
-				b.append(",");
-				b.append(blockFaceToNotch(event.getBlockFace()));
-				b.append(",");
-				b.append(event.getPlayer().getEntityId());
-				b.append("|");
-				iter.remove();
-			}
-		}
-		if (b.length() > 0)
-			b.deleteCharAt(b.length() - 1);
-
-		return b.toString();
-	}
-
-	private String getChatPosts() {
-		return getChatPosts(-1);
-	}
-
-	private String getChatPosts(int entityId) {
-		StringBuilder b = new StringBuilder();
-		for (Iterator<AsyncPlayerChatEvent> iter = chatPostedQueue.iterator(); iter.hasNext(); ) {
-			AsyncPlayerChatEvent event = iter.next();
-			if (entityId == -1 || event.getPlayer().getEntityId() == entityId) {
-				b.append(event.getPlayer().getEntityId());
-				b.append(",");
-				b.append(event.getMessage());
-				b.append("|");
-				iter.remove();
-			}
-		}
-		if (b.length() > 0)
-			b.deleteCharAt(b.length() - 1);
-		 return b.toString();
-	}
-
-	private String getProjectileHits() {
-		return getProjectileHits(-1);
-	}
-
-	private String getProjectileHits(int entityId) {
-		StringBuilder b = new StringBuilder();
-		for (Iterator<ProjectileHitEvent> iter = projectileHitQueue.iterator(); iter.hasNext(); ) {
-			ProjectileHitEvent event = iter.next();
-			Arrow arrow = (Arrow) event.getEntity();
-			LivingEntity shooter = (LivingEntity)arrow.getShooter();
-			if (entityId == -1 || shooter.getEntityId() == entityId) {
-				if (shooter instanceof Player) {
-					Player player = (Player)shooter;
-					Block block = arrow.getAttachedBlock(); 
-					if (block == null)
-						block = arrow.getLocation().getBlock();
-					Location loc = block.getLocation();
-					b.append(blockLocationToRelative(loc));
-					b.append(",");
-					b.append(1); //blockFaceToNotch(event.getBlockFace()), but don't really care
-					b.append(",");
-					b.append(player.getPlayerListName());
-					b.append(",");
-					Entity hitEntity = event.getHitEntity();
-					if(hitEntity!=null){
-						if(hitEntity instanceof Player){	
-							Player hitPlayer = (Player)hitEntity;
-							b.append(hitPlayer.getPlayerListName());
-						}else{
-							b.append(hitEntity.getName());
-						}
-					}
-				}
-				b.append("|");
-				arrow.remove();
-				iter.remove();
-			}						
-		}
-		if (b.length() > 0)
-			b.deleteCharAt(b.length() - 1);
-		return b.toString();
-	
-	}
-
-	private void clearEntityEvents(int entityId) {
-		for (Iterator<PlayerInteractEvent> iter = interactEventQueue.iterator(); iter.hasNext(); ) {
-			PlayerInteractEvent event = iter.next();
-			if (event.getPlayer().getEntityId() == entityId)
-				iter.remove();
-		}
-		for (Iterator<AsyncPlayerChatEvent> iter = chatPostedQueue.iterator(); iter.hasNext(); ) {
-			AsyncPlayerChatEvent event = iter.next();
-			if (event.getPlayer().getEntityId() == entityId)
-				iter.remove();
-		}
-		for (Iterator<ProjectileHitEvent> iter = projectileHitQueue.iterator(); iter.hasNext(); ) {
-			ProjectileHitEvent event = iter.next();
-			Arrow arrow = (Arrow) event.getEntity();
-			LivingEntity shooter = (LivingEntity)arrow.getShooter();
-			if (shooter.getEntityId() == entityId)
-				iter.remove();
-		}
 	}
 				
 	public void send(Object a) {
@@ -1111,25 +722,4 @@ public class RemoteSession {
 			}
 		}
 	}
-
-	/** from CraftBukkit's org.bukkit.craftbukkit.block.CraftBlock.blockFactToNotch */
-	public static int blockFaceToNotch(BlockFace face) {
-		switch (face) {
-		case DOWN:
-			return 0;
-		case UP:
-			return 1;
-		case NORTH:
-			return 2;
-		case SOUTH:
-			return 3;
-		case WEST:
-			return 4;
-		case EAST:
-			return 5;
-		default:
-			return 7; // Good as anything here, but technically invalid
-		}
-	}
-
 }

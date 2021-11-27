@@ -15,12 +15,12 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
-import org.bukkit.event.block.Action;
+// import org.bukkit.event.block.Action;
 import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
-import org.bukkit.inventory.ItemStack;
+// import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
@@ -35,6 +35,8 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	public ServerListenerThread serverThread;
 
 	public List<RemoteSession> sessions;
+
+	public CommandExecutor commonExecutor;
 
 	public Player hostPlayer = null;
 
@@ -79,6 +81,8 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 		//setup session array
 		sessions = new ArrayList<RemoteSession>();
+
+		commonExecutor = new CommandExecutor(this);
 		
 		//create new tcp listener thread
 		try {
@@ -140,11 +144,9 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		//getLogger().info("Chat event fired");
 		for (RemoteSession session: sessions) {
 			session.queueChatPostedEvent(event);
-
-			if(session.getCurrentPlayer().getEntityId() == event.getPlayer().getEntityId()) {
-				session.tryRunCommand(event.getMessage());
-			}
 		}
+
+		commonExecutor.enqueueEventCommand(event);
 	}
 	
 	@EventHandler(ignoreCancelled=true)
@@ -244,6 +246,7 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 					s.tick();
 				}
 			}
+			commonExecutor.tick();
 		}
 	}
 }
