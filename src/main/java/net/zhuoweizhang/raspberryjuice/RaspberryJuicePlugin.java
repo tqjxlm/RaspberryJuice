@@ -1,6 +1,11 @@
 package net.zhuoweizhang.raspberryjuice;
 
 import java.net.InetSocketAddress;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpResponse.BodyHandlers;
 import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.Iterator;
@@ -27,9 +32,9 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	public static final Set<Material> blockBreakDetectionTools = EnumSet.of(
 			Material.DIAMOND_SWORD,
-			Material.GOLD_SWORD, 
-			Material.IRON_SWORD, 
-			Material.STONE_SWORD, 
+			Material.GOLD_SWORD,
+			Material.IRON_SWORD,
+			Material.STONE_SWORD,
 			Material.WOOD_SWORD);
 
 	public ServerListenerThread serverThread;
@@ -40,51 +45,72 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	public Player hostPlayer = null;
 
+	static String backendUrl;
+
 	private LocationType locationType;
 
 	private HitClickType hitClickType;
+
 	public LocationType getLocationType() {
 		return locationType;
 	}
+
 	public HitClickType getHitClickType() {
 		return hitClickType;
 	}
 
 	public void onEnable() {
-		//save a copy of the default config.yml if one is not there
-        this.saveDefaultConfig();
-        //get host and port from config.yml
+		// save a copy of the default config.yml if one is not there
+		this.saveDefaultConfig();
+		// get host and port from config.yml
 		String hostname = this.getConfig().getString("hostname");
-		if (hostname == null || hostname.isEmpty()) hostname = "0.0.0.0";
+		if (hostname == null || hostname.isEmpty())
+			hostname = "0.0.0.0";
 		int port = this.getConfig().getInt("port");
 		getLogger().info("Using host:port - " + hostname + ":" + Integer.toString(port));
-		
-		//get location type (ABSOLUTE or RELATIVE) from config.yml
+
+		// get location type (ABSOLUTE or RELATIVE) from config.yml
 		String location = this.getConfig().getString("location").toUpperCase();
 		try {
 			locationType = LocationType.valueOf(location);
-		} catch(IllegalArgumentException e) {
-			getLogger().warning("warning - location value in config.yml should be ABSOLUTE or RELATIVE - '" + location + "' found");
+		} catch (IllegalArgumentException e) {
+			getLogger().warning(
+					"warning - location value in config.yml should be ABSOLUTE or RELATIVE - '" + location + "' found");
 			locationType = LocationType.valueOf("RELATIVE");
 		}
 		getLogger().info("Using " + locationType.name() + " locations");
 
-		//get hit click type (LEFT, RIGHT or BOTH) from config.yml
+		// get hit click type (LEFT, RIGHT or BOTH) from config.yml
 		String hitClick = this.getConfig().getString("hitclick").toUpperCase();
 		try {
 			hitClickType = HitClickType.valueOf(hitClick);
-		} catch(IllegalArgumentException e) {
-			getLogger().warning("warning - hitclick value in config.yml should be LEFT, RIGHT or BOTH - '" + hitClick + "' found");
+		} catch (IllegalArgumentException e) {
+			getLogger().warning(
+					"warning - hitclick value in config.yml should be LEFT, RIGHT or BOTH - '" + hitClick + "' found");
 			hitClickType = HitClickType.valueOf("RIGHT");
 		}
 		getLogger().info("Using " + hitClickType.name() + " clicks for hits");
 
-		//setup session array
+		// setup player backend
+		if (this.getConfig().contains("backendUrl")) {
+			backendUrl = this.getConfig().getString("backendUrl");
+			try {
+				PlayerBackend.retrieveRestrictedAreas();
+			} catch (Exception e) {
+				getLogger().warning("Failed to initialize restricted areas");
+				getLogger().warning(e.getMessage());
+				PlayerBackend.valid = false;
+			}
+		} else {
+			PlayerBackend.valid = false;
+		}
+
+		// setup session array
 		sessions = new ArrayList<RemoteSession>();
 
 		commonExecutor = new CommandExecutor(this);
-		
-		//create new tcp listener thread
+
+		// create new tcp listener thread
 		try {
 			if (hostname.equals("0.0.0.0")) {
 				serverThread = new ServerListenerThread(this, new InetSocketAddress(port));
@@ -98,61 +124,74 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 			getLogger().warning("Failed to start ThreadListener");
 			return;
 		}
-		//register the events
+		// register the events
 		getServer().getPluginManager().registerEvents(this, this);
-		//setup the schedule to called the tick handler
+		// setup the schedule to called the tick handler
 		getServer().getScheduler().scheduleSyncRepeatingTask(this, new TickHandler(), 1, 1);
 	}
-	
+
 	@EventHandler
 	public void PlayerJoin(PlayerJoinEvent event) {
 		Player p = event.getPlayer();
-		//p.addPotionEffect(new PotionEffect(PotionEffectType.NIGHT_VISION, Integer.MAX_VALUE, 2, true, false));	// give night vision power
-		Server server = getServer();
-		server.broadcastMessage("Welcome " + p.getPlayerListName());
+		getLogger().info("Logging: " + p.getName());
+
+		try {
+			CommandExecutor.registeredPlayers.put(p, new PlayerBackend(p.getName()));
+
+			// p.addPotionEffect(new PotionEffect(PotionEffectType.NIGHT_VISION,
+			// Integer.MAX_VALUE, 2, true, false)); // give night vision power
+			Server server = getServer();
+			server.broadcastMessage("Welcome " + p.getPlayerListName());
+		} catch (Exception e) {
+			getLogger().warning("Failed logging attempt");
+			getLogger().warning(e.getMessage());
+			p.kickPlayer("You are not registered to our world. Please contact the administrator.");
+		}
 	}
 
-	@EventHandler(ignoreCancelled=true)
+	@EventHandler(ignoreCancelled = true)
 	public void onPlayerInteract(PlayerInteractEvent event) {
 		event.setCancelled(true);
 		return;
 
 		// only react to events which are of the correct type
 		// switch(hitClickType) {
-		// 	case BOTH:
-		// 		if ((event.getAction() != Action.RIGHT_CLICK_BLOCK) && (event.getAction() != Action.LEFT_CLICK_BLOCK)) return;
-		// 		break;
-		// 	case LEFT:
-		// 		if (event.getAction() != Action.LEFT_CLICK_BLOCK) return;
-		// 		break;
-		// 	case RIGHT:
-		// 		if (event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
-		// 		break;
+		// case BOTH:
+		// if ((event.getAction() != Action.RIGHT_CLICK_BLOCK) && (event.getAction() !=
+		// Action.LEFT_CLICK_BLOCK)) return;
+		// break;
+		// case LEFT:
+		// if (event.getAction() != Action.LEFT_CLICK_BLOCK) return;
+		// break;
+		// case RIGHT:
+		// if (event.getAction() != Action.RIGHT_CLICK_BLOCK) return;
+		// break;
 		// }
 		// ItemStack currentTool = event.getItem();
-		// if (currentTool == null || !blockBreakDetectionTools.contains(currentTool.getType())) {
-		// 	return;
+		// if (currentTool == null ||
+		// !blockBreakDetectionTools.contains(currentTool.getType())) {
+		// return;
 		// }
 		// for (RemoteSession session: sessions) {
-		// 	session.queuePlayerInteractEvent(event);
+		// session.queuePlayerInteractEvent(event);
 		// }
 	}
 
-	@EventHandler(ignoreCancelled=true)
+	@EventHandler(ignoreCancelled = true)
 	public void onChatPosted(AsyncPlayerChatEvent event) {
-		//debug
-		//getLogger().info("Chat event fired");
-		for (RemoteSession session: sessions) {
+		// debug
+		// getLogger().info("Chat event fired");
+		for (RemoteSession session : sessions) {
 			session.queueChatPostedEvent(event);
 		}
 
 		commonExecutor.enqueueEventCommand(event);
 	}
-	
-	@EventHandler(ignoreCancelled=true)
+
+	@EventHandler(ignoreCancelled = true)
 	public void onProjectileHit(ProjectileHitEvent event) {
-		
-		for (RemoteSession session: sessions) {
+
+		for (RemoteSession session : sessions) {
 			session.queueProjectileHitEvent(event);
 		}
 	}
@@ -160,18 +199,20 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	/** called when a new session is established. */
 	public void handleConnection(RemoteSession newSession) {
 		if (checkBanned(newSession)) {
-			getLogger().warning("Kicking " + newSession.getSocket().getRemoteSocketAddress() + " because the IP address has been banned.");
+			getLogger().warning("Kicking " + newSession.getSocket().getRemoteSocketAddress()
+					+ " because the IP address has been banned.");
 			newSession.kick("You've been banned from this server!");
 			return;
 		}
-		synchronized(sessions) {
+		synchronized (sessions) {
 			sessions.add(newSession);
 		}
 	}
 
 	public Player getNamedPlayer(String name) {
-		if (name == null) return null;
-		for(Player player : Bukkit.getOnlinePlayers()) {
+		if (name == null)
+			return null;
+		for (Player player : Bukkit.getOnlinePlayers()) {
 			if (name.equals(player.getPlayerListName())) {
 				return player;
 			}
@@ -180,21 +221,23 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	}
 
 	public Player getHostPlayer() {
-		if (hostPlayer != null) return hostPlayer;
-		for(Player player : Bukkit.getOnlinePlayers()) {
+		if (hostPlayer != null)
+			return hostPlayer;
+		for (Player player : Bukkit.getOnlinePlayers()) {
 			return player;
 		}
 		return null;
 	}
 
-	//get entity by id - DONE to be compatible with the pi it should be changed to return an entity not a player...
+	// get entity by id - DONE to be compatible with the pi it should be changed to
+	// return an entity not a player...
 	public Entity getEntity(int id) {
-		for (Player p: getServer().getOnlinePlayers()) {
+		for (Player p : getServer().getOnlinePlayers()) {
 			if (p.getEntityId() == id) {
 				return p;
 			}
 		}
-		//check all entities in host player's world
+		// check all entities in host player's world
 		Player player = getHostPlayer();
 		World w = player.getWorld();
 		for (Entity e : w.getEntities()) {
@@ -211,10 +254,9 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		return ipBans.contains(sessionIp);
 	}
 
-
 	public void onDisable() {
 		getServer().getScheduler().cancelTasks(this);
-		for (RemoteSession session: sessions) {
+		for (RemoteSession session : sessions) {
 			try {
 				session.close();
 			} catch (Exception e) {
@@ -237,7 +279,7 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	private class TickHandler implements Runnable {
 		public void run() {
 			Iterator<RemoteSession> sI = sessions.iterator();
-			while(sI.hasNext()) {
+			while (sI.hasNext()) {
 				RemoteSession s = sI.next();
 				if (s.pendingRemoval) {
 					s.close();
@@ -249,4 +291,22 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 			commonExecutor.tick();
 		}
 	}
+
+	static String makeRequest(URI uri) throws Exception {
+		HttpRequest request = HttpRequest.newBuilder()
+				.uri(uri)
+				.GET()
+				.build();
+
+		HttpResponse<String> response = HttpClient.newBuilder()
+				.build()
+				.send(request, BodyHandlers.ofString());
+
+		if (response.statusCode() != 200) {
+			throw new Exception(
+					String.format("Request failed. Code %d. Body: %s", response.statusCode(), response.body()));
+		}
+
+		return response.body();
+	};
 }
