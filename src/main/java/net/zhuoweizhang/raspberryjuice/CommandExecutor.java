@@ -99,6 +99,10 @@ public class CommandExecutor {
 				translatedFunctionName = "player.setPos";
 				break;
 			}
+			case ("goHome"): {
+				translatedFunctionName = "player.goHome";
+				break;
+			}
 			default: {
 				plugin.getLogger().warning("Unsupported command: " + functionName);
 				return;
@@ -158,18 +162,20 @@ public class CommandExecutor {
 			// get the world
 			World world = origin.getWorld();
 
+			PlayerBackend backend = registeredPlayers.get(currentPlayer);
+
 			if (c.equals("world.setBlock")) {
 				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
 				updateBlock(world, loc, Integer.parseInt(args[3]),
 						(args.length > 4 ? Byte.parseByte(args[4]) : (byte) 0), currentPlayer);
 
-				// player.setPos
 			} else if (c.equals("player.setPos")) {
 				String x = args[0], y = args[1], z = args[2];
-				// get players current location, so when they are moved we will use the same
-				// pitch and yaw (rotation)
 				Location loc = currentPlayer.getLocation();
 				currentPlayer.teleport(parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+
+			} else if (c.equals("player.goHome")) {
+				currentPlayer.teleport(backend.getHome().getCenter(world));
 
 				// not a command which is supported
 			} else {

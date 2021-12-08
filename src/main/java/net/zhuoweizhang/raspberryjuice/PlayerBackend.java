@@ -4,6 +4,7 @@ import java.net.*;
 import java.util.ArrayList;
 
 import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.json.simple.JSONObject;
 import org.json.simple.JSONArray;
@@ -22,16 +23,22 @@ class Vector3 {
 class Region {
 	public Vector3 min;
 	public Vector3 max;
+	public Vector3 center;
 
-	public Region(Vector3 min, Vector3 max) {
+	public Region(Vector3 min, Vector3 max, Vector3 center) {
 		this.min = min;
 		this.max = max;
+		this.center = center;
 	}
 
 	public boolean containsPoint(Location point) {
 		return (min.x <= point.getBlockX() && point.getBlockX() <= max.x)
 				&& (min.y <= point.getBlockY() && point.getBlockY() <= max.y)
 				&& (min.z <= point.getBlockZ() && point.getBlockZ() <= max.z);
+	}
+
+	public Location getCenter(World world) {
+		return new Location(world, center.x, center.y, center.z);
 	}
 };
 
@@ -61,7 +68,8 @@ public class PlayerBackend {
 			JSONObject region = (JSONObject) home.get("region");
 			Vector3 min = new Vector3((JSONObject) region.get("min"));
 			Vector3 max = new Vector3((JSONObject) region.get("max"));
-			this.homeArea = new Region(min, max);
+			Vector3 center = new Vector3((JSONObject) region.get("center"));
+			this.homeArea = new Region(min, max, center);
 		}
 	}
 
@@ -89,7 +97,8 @@ public class PlayerBackend {
 			JSONObject region = (JSONObject) area.get("region");
 			Vector3 min = new Vector3((JSONObject) region.get("min"));
 			Vector3 max = new Vector3((JSONObject) region.get("max"));
-			restrictedAreas.add(new Region(min, max));
+			Vector3 center = new Vector3((JSONObject) region.get("center"));
+			restrictedAreas.add(new Region(min, max, center));
 		}
 	}
 
@@ -98,5 +107,9 @@ public class PlayerBackend {
 		if ((thisBlock.getTypeId() != blockType) || (thisBlock.getData() != blockData)) {
 			thisBlock.setTypeIdAndData(blockType, blockData, false);
 		}
+	}
+
+	public Region getHome() {
+		return homeArea;
 	}
 }
