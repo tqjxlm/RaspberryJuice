@@ -41,7 +41,7 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 	public List<RemoteSession> sessions;
 
-	public CommandExecutor commonExecutor;
+	public CommandSession commonExecutor;
 
 	public Player hostPlayer = null;
 
@@ -95,20 +95,23 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		if (this.getConfig().contains("backendUrl")) {
 			backendUrl = this.getConfig().getString("backendUrl");
 			try {
-				PlayerBackend.retrieveRestrictedAreas();
+				PlayerBackend.refreshAll(this);
+
+				if (this.getConfig().contains("backendSocket")) {
+					String backendSocket = this.getConfig().getString("backendSocket");
+					PlayerBackend.setupBackendSocket(backendSocket, this);
+				}
+				getLogger().info("BackendThreadListener Started");
 			} catch (Exception e) {
-				getLogger().warning("Failed to initialize restricted areas");
+				getLogger().warning("Failed to initialize backend");
 				getLogger().warning(e.getMessage());
-				PlayerBackend.valid = false;
 			}
-		} else {
-			PlayerBackend.valid = false;
 		}
 
 		// setup session array
 		sessions = new ArrayList<RemoteSession>();
 
-		commonExecutor = new CommandExecutor(this);
+		commonExecutor = new CommandSession(this);
 
 		// create new tcp listener thread
 		try {
@@ -128,6 +131,8 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		getServer().getPluginManager().registerEvents(this, this);
 		// setup the schedule to called the tick handler
 		getServer().getScheduler().scheduleSyncRepeatingTask(this, new TickHandler(), 1, 1);
+
+		this.getCommand("refreshBackend").setExecutor(new RefreshBackendCommand(this));
 	}
 
 	@EventHandler
@@ -135,16 +140,10 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		Player p = event.getPlayer();
 		getLogger().info("Logging: " + p.getName());
 
-		try {
-			CommandExecutor.registeredPlayers.put(p, new PlayerBackend(p.getName()));
-
-			// p.addPotionEffect(new PotionEffect(PotionEffectType.NIGHT_VISION,
-			// Integer.MAX_VALUE, 2, true, false)); // give night vision power
+		if (PlayerBackend.isPlayerRegistered(p.getName())) {
 			Server server = getServer();
 			server.broadcastMessage("Welcome " + p.getPlayerListName());
-		} catch (Exception e) {
-			getLogger().warning("Failed logging attempt");
-			getLogger().warning(e.getMessage());
+		} else {
 			p.kickPlayer("You are not registered to our world. Please contact the administrator.");
 		}
 	}

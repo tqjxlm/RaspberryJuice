@@ -1,7 +1,6 @@
 package net.zhuoweizhang.raspberryjuice;
 
 import java.util.ArrayDeque;
-import java.util.HashMap;
 import java.util.Iterator;
 
 import org.bukkit.Location;
@@ -19,7 +18,7 @@ import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 
-public class CommandExecutor {
+public class CommandSession {
 
 	protected final LocationType locationType;
 
@@ -29,7 +28,7 @@ public class CommandExecutor {
 
 	protected ArrayDeque<String> outQueue = new ArrayDeque<String>();
 
-	public final RaspberryJuicePlugin plugin;
+	protected final RaspberryJuicePlugin plugin;
 
 	protected ArrayDeque<PlayerInteractEvent> interactEventQueue = new ArrayDeque<PlayerInteractEvent>();
 
@@ -39,9 +38,7 @@ public class CommandExecutor {
 
 	protected int maxCommandsPerTick = 1000;
 
-	public static HashMap<Player, PlayerBackend> registeredPlayers = new HashMap<Player, PlayerBackend>();
-
-	public CommandExecutor(RaspberryJuicePlugin plugin) {
+	public CommandSession(RaspberryJuicePlugin plugin) {
 		this.plugin = plugin;
 		this.locationType = plugin.getLocationType();
 	}
@@ -71,17 +68,13 @@ public class CommandExecutor {
 	private void tryRunCommand(AsyncPlayerChatEvent event) {
 		String chatMessage = event.getMessage();
 
-		plugin.getLogger().info("Parsing chat command: " + chatMessage);
-
-		chatMessage = chatMessage.replaceAll("\\s+", "");
-		int leftBracket = chatMessage.indexOf('(');
-		if (leftBracket == -1) {
+		Object[] functionCall = parseFunctionCall(chatMessage);
+		if (functionCall == null) {
 			return;
 		}
-		String functionName = chatMessage.substring(0, leftBracket);
-		String[] args = chatMessage.substring(leftBracket + 1, chatMessage.length() - 1).split(",");
 
-		plugin.getLogger().info("Chat command: " + chatMessage + "(" + args + ")");
+		String functionName = (String) functionCall[0];
+		String[] args = (String[]) functionCall[1];
 
 		String translatedFunctionName;
 
@@ -157,12 +150,12 @@ public class CommandExecutor {
 
 		try {
 			// get the server
-			Server server = plugin.getServer();
+			// Server server = plugin.getServer();
 
 			// get the world
 			World world = origin.getWorld();
 
-			PlayerBackend backend = registeredPlayers.get(currentPlayer);
+			PlayerBackend backend = PlayerBackend.getBackend(currentPlayer.getName());
 
 			if (c.equals("world.setBlock")) {
 				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
@@ -192,13 +185,12 @@ public class CommandExecutor {
 
 	// create a cuboid of lots of blocks
 	protected final void setCuboid(Location pos1, Location pos2, int blockType, byte data, Player player) {
-		if (!registeredPlayers.containsKey(player)) {
+		if (!PlayerBackend.isPlayerRegistered(player.getName())) {
 			return;
 		}
 
-		PlayerBackend backend = registeredPlayers.get(player);
+		PlayerBackend backend = PlayerBackend.getBackend(player.getName());
 		if (!backend.isModificationAllowed(pos1) || !backend.isModificationAllowed(pos2)) {
-			player.sendMessage("You are not allowed to build here!");;
 			return;
 		}
 
@@ -247,10 +239,9 @@ public class CommandExecutor {
 
 	// updates a block
 	protected final void updateBlock(World world, Location loc, int blockType, byte blockData, Player player) {
-		if (registeredPlayers.containsKey(player)) {
-			PlayerBackend backend = registeredPlayers.get(player);
+		if (PlayerBackend.isPlayerRegistered(player.getName())) {
+			PlayerBackend backend = PlayerBackend.getBackend(player.getName());
 			if (!backend.isModificationAllowed(loc)) {
-				player.sendMessage("You are not allowed to build here!");;
 				return;
 			}
 
@@ -509,4 +500,15 @@ public class CommandExecutor {
 		}
 	}
 
+	public static Object[] parseFunctionCall(String message) {
+		message = message.replaceAll("\\s+", "");
+		int leftBracket = message.indexOf('(');
+		if (leftBracket == -1) {
+			return null;
+		}
+		String functionName = message.substring(0, leftBracket);
+		String args[] = message.substring(leftBracket + 1, message.length() - 1).split(",");
+
+		return new Object[] { functionName, args };
+	}
 }

@@ -24,7 +24,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.util.Vector;
 
-public class RemoteSession extends CommandExecutor {
+public class RemoteSession extends CommandSession {
 
 	private Socket socket;
 
@@ -584,12 +584,17 @@ public class RemoteSession extends CommandExecutor {
 	}
 
 	protected void handleLine(String line) {
-		// System.out.println(line);
-		String methodName = line.substring(0, line.indexOf("("));
-		// split string into args, handles , inside " i.e. ","
-		String[] args = line.substring(line.indexOf("(") + 1, line.length() - 1).split(",");
-		// System.out.println(methodName + ":" + Arrays.toString(args));
-		handleCommand(methodName, args);
+		try {
+			// System.out.println(line);
+			String methodName = line.substring(0, line.indexOf("("));
+			// split string into args, handles , inside " i.e. ","
+			String[] args = line.substring(line.indexOf("(") + 1, line.length() - 1).split(",");
+
+			// System.out.println(methodName + ":" + Arrays.toString(args));
+			handleCommand(methodName, args);
+		} catch (Exception e) {
+			this.plugin.getLogger().warning("Failed to run command: " + line);
+		}
 	}
 
 	// gets the current player
