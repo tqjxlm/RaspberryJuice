@@ -22,7 +22,7 @@ public class RefreshBackendCommand implements CommandExecutor {
             }
 
             try {
-                PlayerBackend.refreshAll(this.plugin);
+                MineBackend.refreshAll(this.plugin);
             } catch (Exception e) {
                 this.plugin.getLogger().warning("Failed to refresh backend");
                 this.plugin.getLogger().warning(e.getMessage());

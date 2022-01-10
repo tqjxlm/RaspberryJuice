@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.Server;
 import org.bukkit.World;
@@ -25,6 +26,7 @@ import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerMoveEvent;
 // import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -95,11 +97,11 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		if (this.getConfig().contains("backendUrl")) {
 			backendUrl = this.getConfig().getString("backendUrl");
 			try {
-				PlayerBackend.refreshAll(this);
+				MineBackend.refreshAll(this);
 
 				if (this.getConfig().contains("backendSocket")) {
 					String backendSocket = this.getConfig().getString("backendSocket");
-					PlayerBackend.setupBackendSocket(backendSocket, this);
+					MineBackend.setupBackendSocket(backendSocket, this);
 				}
 				getLogger().info("BackendThreadListener Started");
 			} catch (Exception e) {
@@ -140,7 +142,18 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 		Player p = event.getPlayer();
 		getLogger().info("Logging: " + p.getName());
 
-		if (PlayerBackend.isPlayerRegistered(p.getName())) {
+		if (MineBackend.isUserRegistered(p.getName())) {
+			UserBackend user = MineBackend.getUser(p.getName());
+			if (!user.allowVisit(p.getLocation())) {
+				Region allowedRegion = user.findAnyAllowedRegion();
+				if (allowedRegion == null) {
+					p.kickPlayer("Oops! You are not allowed to any region. Please contact the administrator.");
+					return;
+				} else {
+					p.teleport(allowedRegion.getCenter(p.getWorld()));
+				}
+			}
+
 			Server server = getServer();
 			server.broadcastMessage("Welcome " + p.getPlayerListName());
 		} else {
@@ -151,7 +164,6 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 	@EventHandler(ignoreCancelled = true)
 	public void onPlayerInteract(PlayerInteractEvent event) {
 		event.setCancelled(true);
-		return;
 
 		// only react to events which are of the correct type
 		// switch(hitClickType) {
@@ -192,6 +204,15 @@ public class RaspberryJuicePlugin extends JavaPlugin implements Listener {
 
 		for (RemoteSession session : sessions) {
 			session.queueProjectileHitEvent(event);
+		}
+	}
+
+	@EventHandler(ignoreCancelled = true)
+	public void onPlayerMove(PlayerMoveEvent event) {
+		Location targetLocation = event.getTo();
+		UserBackend user = MineBackend.getUser(event.getPlayer().getName());
+		if (!user.allowVisit(targetLocation)) {
+			event.setCancelled(true);
 		}
 	}
 

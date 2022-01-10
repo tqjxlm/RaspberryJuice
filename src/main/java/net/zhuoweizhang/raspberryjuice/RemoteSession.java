@@ -24,6 +24,7 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.util.Vector;
 
+@SuppressWarnings("deprecation")
 public class RemoteSession extends CommandSession {
 
 	private Socket socket;
@@ -550,7 +551,7 @@ public class RemoteSession extends CommandSession {
 			}
 		} catch (Exception e) {
 
-			plugin.getLogger().warning("Error occured handling command");
+			plugin.getLogger().warning("Error occurred handling command");
 			e.printStackTrace();
 			send("Fail");
 
@@ -600,7 +601,7 @@ public class RemoteSession extends CommandSession {
 	// gets the current player
 	public Player getCurrentPlayer() {
 		Player player = attachedPlayer;
-		// if the player hasnt already been retreived for this session, go and get it.
+		// if the player hasn't already been retrieved for this session, go and get it.
 		if (player == null) {
 			player = plugin.getHostPlayer();
 			attachedPlayer = player;

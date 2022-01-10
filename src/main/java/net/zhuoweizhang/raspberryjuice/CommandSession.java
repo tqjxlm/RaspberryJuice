@@ -6,7 +6,7 @@ import java.util.Iterator;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.Material;
-import org.bukkit.Server;
+// import org.bukkit.Server;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.entity.Arrow;
@@ -18,6 +18,7 @@ import org.bukkit.event.entity.ProjectileHitEvent;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 
+@SuppressWarnings("deprecation")
 public class CommandSession {
 
 	protected final LocationType locationType;
@@ -155,7 +156,7 @@ public class CommandSession {
 			// get the world
 			World world = origin.getWorld();
 
-			PlayerBackend backend = PlayerBackend.getBackend(currentPlayer.getName());
+			UserBackend backend = MineBackend.getUser(currentPlayer.getName());
 
 			if (c.equals("world.setBlock")) {
 				Location loc = parseRelativeBlockLocation(args[0], args[1], args[2]);
@@ -165,7 +166,9 @@ public class CommandSession {
 			} else if (c.equals("player.setPos")) {
 				String x = args[0], y = args[1], z = args[2];
 				Location loc = currentPlayer.getLocation();
-				currentPlayer.teleport(parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+				if (MineBackend.getUser(currentPlayer.getName()).allowVisit(loc)) {
+					currentPlayer.teleport(parseRelativeLocation(x, y, z, loc.getPitch(), loc.getYaw()));
+				}
 
 			} else if (c.equals("player.goHome")) {
 				currentPlayer.teleport(backend.getHome().getCenter(world));
@@ -185,12 +188,12 @@ public class CommandSession {
 
 	// create a cuboid of lots of blocks
 	protected final void setCuboid(Location pos1, Location pos2, int blockType, byte data, Player player) {
-		if (!PlayerBackend.isPlayerRegistered(player.getName())) {
+		if (!MineBackend.isUserRegistered(player.getName())) {
 			return;
 		}
 
-		PlayerBackend backend = PlayerBackend.getBackend(player.getName());
-		if (!backend.isModificationAllowed(pos1) || !backend.isModificationAllowed(pos2)) {
+		UserBackend backend = MineBackend.getUser(player.getName());
+		if (!backend.allowEdit(pos1) || !backend.allowEdit(pos2)) {
 			return;
 		}
 
@@ -229,7 +232,7 @@ public class CommandSession {
 		for (int y = minY; y <= maxY; ++y) {
 			for (int x = minX; x <= maxX; ++x) {
 				for (int z = minZ; z <= maxZ; ++z) {
-					blockData.append(new Integer(world.getBlockTypeIdAt(x, y, z)).toString() + ",");
+					blockData.append(String.format("%d,", world.getBlockTypeIdAt(x, y, z)));
 				}
 			}
 		}
@@ -239,9 +242,9 @@ public class CommandSession {
 
 	// updates a block
 	protected final void updateBlock(World world, Location loc, int blockType, byte blockData, Player player) {
-		if (PlayerBackend.isPlayerRegistered(player.getName())) {
-			PlayerBackend backend = PlayerBackend.getBackend(player.getName());
-			if (!backend.isModificationAllowed(loc)) {
+		if (MineBackend.isUserRegistered(player.getName())) {
+			UserBackend backend = MineBackend.getUser(player.getName());
+			if (!backend.allowEdit(loc)) {
 				return;
 			}
 
